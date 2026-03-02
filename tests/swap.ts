@@ -329,6 +329,70 @@ describe("swap", () => {
     assert.isTrue(failed);
   });
 
+  it("take_offer fails when maker tries to take own offer", async () => {
+    const selfTakeOfferId = new anchor.BN(4);
+    const [selfTakeOfferPda] = anchor.web3.PublicKey.findProgramAddressSync(
+      [
+        Buffer.from("offer"),
+        maker.publicKey.toBuffer(),
+        selfTakeOfferId.toArrayLike(Buffer, "le", 8),
+      ],
+      program.programId,
+    );
+    const selfTakeVaultAta = getAssociatedTokenAddressSync(
+      mintMakerGives,
+      selfTakeOfferPda,
+      true,
+      TOKEN_PROGRAM_ID,
+    );
+
+    await program.methods
+      .makeOffer(selfTakeOfferId, OFFER_AMOUNT_GIVES, OFFER_AMOUNT_WANTS)
+      .accountsPartial({
+        maker: maker.publicKey,
+        mintMakerGives,
+        mintMakerWants,
+        makerAtaGives,
+        vault: selfTakeVaultAta,
+        associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
+        offer: selfTakeOfferPda,
+        tokenProgram: TOKEN_PROGRAM_ID,
+        systemProgram: anchor.web3.SystemProgram.programId,
+      })
+      .signers([maker])
+      .rpc();
+
+    const makerAtaWants = await getOrCreateAssociatedTokenAccount(
+      connection,
+      maker,
+      mintMakerWants,
+      maker.publicKey,
+    );
+
+    let failed = false;
+    try {
+      await program.methods
+        .takeOffer(selfTakeOfferId)
+        .accountsPartial({
+          taker: maker.publicKey,
+          maker: maker.publicKey,
+          mintMakerGives,
+          mintMakerWants,
+          makerAtaWants: makerAtaWants.address,
+          takerAtaWants: makerAtaWants.address,
+          takerAtaGives: makerAtaGives,
+          vault: selfTakeVaultAta,
+          offer: selfTakeOfferPda,
+          tokenProgram: TOKEN_PROGRAM_ID,
+        })
+        .signers([maker])
+        .rpc();
+    } catch (_error) {
+      failed = true;
+    }
+    assert.isTrue(failed);
+  });
+
   it("cancel_offer", async () => {
     const cancelOfferId = new anchor.BN(2);
     const [cancelOfferPda] = anchor.web3.PublicKey.findProgramAddressSync(

@@ -16,4 +16,6 @@ pub enum ErrorCode {
     MintMismatch,
     #[msg("Only the maker can perform this action")]
     MakerMismatch,
+    #[msg("Maker cannot take their own offer")]
+    MakerCannotBeTaker,
 }

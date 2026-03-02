@@ -79,6 +79,11 @@ pub fn handle_take_offer(ctx: Context<TakeOffer>, offer_id: u64) -> Result<()> {
         ctx.accounts.mint_maker_wants.key(),
         ErrorCode::MintMismatch
     );
+    require_keys_neq!(
+        ctx.accounts.maker.key(),
+        ctx.accounts.taker.key(),
+        ErrorCode::MakerCannotBeTaker
+    );
 
     let pay_maker = TransferChecked {
         from: ctx.accounts.taker_ata_wants.to_account_info(),
