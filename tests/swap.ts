@@ -29,7 +29,6 @@ describe("swap", () => {
   let offerPda: anchor.web3.PublicKey;
   let vaultAta: anchor.web3.PublicKey;
 
-  // Step 1 helper (we will implement this first).
   async function airdropSol(
     pubkey: anchor.web3.PublicKey,
     solAmount = 2,
@@ -181,8 +180,6 @@ describe("swap", () => {
     );
   });
 
-  // take_offer
-
   const taker = anchor.web3.Keypair.generate();
 
   it("take_offer", async () => {
@@ -258,5 +255,206 @@ describe("swap", () => {
       takerAtaWants.address,
     );
     assert.strictEqual(takerAtaWantsInfo.amount.toString(), "0");
+
+    const makerAtaWantsInfo = await getAccount(
+      connection,
+      makerAtaWants.address,
+    );
+    assert.strictEqual(
+      makerAtaWantsInfo.amount.toString(),
+      OFFER_AMOUNT_WANTS.toString(),
+    );
+
+    const takerAtaGivesInfo = await getAccount(
+      connection,
+      takerAtaGives.address,
+    );
+    assert.strictEqual(
+      takerAtaGivesInfo.amount.toString(),
+      OFFER_AMOUNT_GIVES.toString(),
+    );
+
+    const makerAtaGivesInfo = await getAccount(connection, makerAtaGives);
+    const expectedMakerLeft = new anchor.BN(INITIAL_MAKER_MINT_AMOUNT).sub(
+      OFFER_AMOUNT_GIVES,
+    );
+
+    assert.strictEqual(
+      makerAtaGivesInfo.amount.toString(),
+      expectedMakerLeft.toString(),
+    );
+  });
+
+  it("take_offer fails when already filled", async () => {
+    const makerAtaWants = await getOrCreateAssociatedTokenAccount(
+      connection,
+      maker,
+      mintMakerWants,
+      maker.publicKey,
+    );
+    const takerAtaWants = await getOrCreateAssociatedTokenAccount(
+      connection,
+      taker,
+      mintMakerWants,
+      taker.publicKey,
+    );
+    const takerAtaGives = await getOrCreateAssociatedTokenAccount(
+      connection,
+      taker,
+      mintMakerGives,
+      taker.publicKey,
+    );
+
+    let failed = false;
+    try {
+      await program.methods
+        .takeOffer(offerId)
+        .accountsPartial({
+          taker: taker.publicKey,
+          maker: maker.publicKey,
+          mintMakerGives,
+          mintMakerWants,
+          makerAtaWants: makerAtaWants.address,
+          takerAtaWants: takerAtaWants.address,
+          takerAtaGives: takerAtaGives.address,
+          vault: vaultAta,
+          offer: offerPda,
+          tokenProgram: TOKEN_PROGRAM_ID,
+        })
+        .signers([taker])
+        .rpc();
+    } catch (_error) {
+      failed = true;
+    }
+    assert.isTrue(failed);
+  });
+
+  it("cancel_offer", async () => {
+    const cancelOfferId = new anchor.BN(2);
+    const [cancelOfferPda] = anchor.web3.PublicKey.findProgramAddressSync(
+      [
+        Buffer.from("offer"),
+        maker.publicKey.toBuffer(),
+        cancelOfferId.toArrayLike(Buffer, "le", 8),
+      ],
+      program.programId,
+    );
+    const cancelVaultAta = getAssociatedTokenAddressSync(
+      mintMakerGives,
+      cancelOfferPda,
+      true,
+      TOKEN_PROGRAM_ID,
+    );
+
+    await program.methods
+      .makeOffer(cancelOfferId, OFFER_AMOUNT_GIVES, OFFER_AMOUNT_WANTS)
+      .accountsPartial({
+        maker: maker.publicKey,
+        mintMakerGives,
+        mintMakerWants,
+        makerAtaGives,
+        vault: cancelVaultAta,
+        associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
+        offer: cancelOfferPda,
+        tokenProgram: TOKEN_PROGRAM_ID,
+        systemProgram: anchor.web3.SystemProgram.programId,
+      })
+      .signers([maker])
+      .rpc();
+
+    const cancelOfferTx = await program.methods
+      .cancelOffer(cancelOfferId)
+      .accountsPartial({
+        maker: maker.publicKey,
+        mintMakerGives,
+        makerAtaGives,
+        vault: cancelVaultAta,
+        offer: cancelOfferPda,
+        tokenProgram: TOKEN_PROGRAM_ID,
+      })
+      .signers([maker])
+      .rpc();
+
+    console.log("cancel_offer transaction signature:", cancelOfferTx);
+
+    const offerInfoAfterCancel = await connection.getAccountInfo(
+      cancelOfferPda,
+    );
+    assert.isNull(offerInfoAfterCancel);
+
+    const vaultInfoAfterCancel = await connection.getAccountInfo(
+      cancelVaultAta,
+    );
+    assert.isNull(vaultInfoAfterCancel);
+
+    const makerAtaGivesInfo = await getAccount(connection, makerAtaGives);
+    const expectedMakerLeft = new anchor.BN(INITIAL_MAKER_MINT_AMOUNT).sub(
+      OFFER_AMOUNT_GIVES,
+    );
+
+    assert.strictEqual(
+      makerAtaGivesInfo.amount.toString(),
+      expectedMakerLeft.toString(),
+    );
+  });
+
+  it("cancel_offer fails for non-maker", async () => {
+    const unauthorizedOfferId = new anchor.BN(3);
+    const [unauthorizedOfferPda] = anchor.web3.PublicKey.findProgramAddressSync(
+      [
+        Buffer.from("offer"),
+        maker.publicKey.toBuffer(),
+        unauthorizedOfferId.toArrayLike(Buffer, "le", 8),
+      ],
+      program.programId,
+    );
+    const unauthorizedVaultAta = getAssociatedTokenAddressSync(
+      mintMakerGives,
+      unauthorizedOfferPda,
+      true,
+      TOKEN_PROGRAM_ID,
+    );
+
+    await program.methods
+      .makeOffer(unauthorizedOfferId, OFFER_AMOUNT_GIVES, OFFER_AMOUNT_WANTS)
+      .accountsPartial({
+        maker: maker.publicKey,
+        mintMakerGives,
+        mintMakerWants,
+        makerAtaGives,
+        vault: unauthorizedVaultAta,
+        associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
+        offer: unauthorizedOfferPda,
+        tokenProgram: TOKEN_PROGRAM_ID,
+        systemProgram: anchor.web3.SystemProgram.programId,
+      })
+      .signers([maker])
+      .rpc();
+
+    const takerAtaGives = await getOrCreateAssociatedTokenAccount(
+      connection,
+      taker,
+      mintMakerGives,
+      taker.publicKey,
+    );
+
+    let failed = false;
+    try {
+      await program.methods
+        .cancelOffer(unauthorizedOfferId)
+        .accountsPartial({
+          maker: taker.publicKey,
+          mintMakerGives,
+          makerAtaGives: takerAtaGives.address,
+          vault: unauthorizedVaultAta,
+          offer: unauthorizedOfferPda,
+          tokenProgram: TOKEN_PROGRAM_ID,
+        })
+        .signers([taker])
+        .rpc();
+    } catch (_error) {
+      failed = true;
+    }
+    assert.isTrue(failed);
   });
 });
