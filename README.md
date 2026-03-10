@@ -152,6 +152,7 @@ Current LiteSVM suite: `15 passing`
 
 Covered flows:
 
+```
 cancel_offer
 ✔ refunds the maker and closes escrow accounts
 ✔ fails for a non-maker
@@ -172,6 +173,7 @@ take_offer
 ✔ fails when maker tries to take their own offer
 ✔ fails when taker passes the wrong wants mint
 ✔ fails when taker does not have enough tokens and leaves offer intact
+```
 
 15 passing
 
